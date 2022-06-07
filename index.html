@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Price is Wrong</title>
+    <style>
+        html, body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 100vh;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const gravity = 9.81;
+
+        let particles = [];
+        let image = null;
+        let audioContext = null;
+        let soundArrayBuffer = null;
+        let audioBuffer = null;
+        let gainNode = null;
+        let requestedFrame = false;
+        let lastAnimationTime = 0;
+
+        function resizeCanvas() {
+            const canvas = document.getElementById('canvas');
+            canvas.width = canvas.getBoundingClientRect().width;
+            canvas.height = canvas.getBoundingClientRect().height;
+
+            if(image !== null && requestedFrame === false) {
+                render();
+            }
+        }
+
+        async function playSound() {
+            if(audioContext === null) {
+                audioContext = new AudioContext();
+                gainNode = audioContext.createGain();
+                gainNode.gain.value = 0.1;
+                gainNode.connect(audioContext.destination);
+            }
+            if(audioBuffer === null) {
+                if(soundArrayBuffer === null) return;
+
+                audioBuffer = await audioContext.decodeAudioData(soundArrayBuffer);
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(gainNode);
+            source.start();
+        }
+
+        function randomFrom(low, high) {
+            return (Math.random() * (high - low)) + low;
+        }
+
+        function createParticles() {
+            const canvas = document.getElementById('canvas');
+            setTimeout(() => {
+                const startTime = (new Date()).getTime();
+                const makeParticlesInterval = setInterval(() => {
+                    if(particles.length > 500) return;
+
+                    const now = (new Date()).getTime();
+
+                    particles.unshift({
+                        x: randomFrom(-0.1, 0.1),
+                        y: randomFrom(-0.1, 0.3),
+                        vx: randomFrom(-0.8, 0.8),
+                        vy: randomFrom(-0.5, 2),
+                        created: now
+                    });
+                    if(particles.length === 1) {
+                        render();
+                    }
+
+                    if(now - startTime > 1300) {
+                        clearInterval(makeParticlesInterval);
+                    }
+                }, 5);
+            }, 1500);
+        }
+
+        async function onInteract() {
+            await playSound();
+            createParticles();
+            render();
+        }
+
+        function render() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Background image
+            const aspectRatio = image.width / image.height;
+            let width, height;
+            if((image.width / canvas.width) > (image.height / canvas.height)) {
+                width = canvas.width;
+                height = width / aspectRatio;
+            } else {
+                height = canvas.height;
+                width = aspectRatio * height;
+            }
+
+            ctx.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+
+
+            if(particles.length > 0) {
+                // Draw particles
+                const now = (new Date()).getTime();
+                const diff = (lastAnimationTime === 0 ? 0 : now - lastAnimationTime) / 1000;
+                lastAnimationTime = now;
+                const coordinateScaleX = canvas.width / 2;
+                const coordinateScaleY = canvas.height / 2;
+
+                const particleWidth = width / 3;
+                const particleHeight = height / 3;
+
+                for(const particle of particles) {
+                    particle.x += particle.vx * diff;
+                    particle.y += particle.vy * diff;
+                    particle.vy -= (gravity * diff * 0.25);
+
+                    const scaling = Math.max((now - particle.created) / 1000, 0) / 2;
+
+                    ctx.save();
+                    ctx.globalAlpha = Math.min(1, (scaling * 3) + 0.1);
+                    ctx.drawImage(image,
+                        (particle.x * coordinateScaleX) + (canvas.width / 2) - ((particleWidth * scaling) / 2),
+                        (particle.y * -1 * coordinateScaleY) + (canvas.height / 2) - ((particleHeight * scaling) / 2),
+                        particleWidth * Math.min(1, scaling),
+                        particleHeight * Math.min(1, scaling));
+                    ctx.restore();
+                }
+
+                particles = particles.filter(particle => {
+                    const highest = particle.y + ((particleHeight / 2) / coordinateScaleY);
+                    const leftest = particle.x - ((particleWidth / 2) / coordinateScaleX);
+                    const rightest = particle.x + ((particleWidth / 2) / coordinateScaleX);
+                    return !((highest < -1) || (leftest > 1) || (rightest < -1));
+                });
+
+                // Request animation frame if there are particles to animate
+                requestedFrame = true;
+                requestAnimationFrame(render);
+            } else {
+                requestedFrame = false;
+                lastAnimationTime = 0;
+            }
+        }
+
+        async function loadImageFromURL(url) {
+            image = new Image();
+            image.src = url;
+            await image.decode();
+        }
+
+        async function loadImage() {
+            const providedURL = window.location.hash.substring(1);
+            if(providedURL !== '') {
+                try {
+                    await loadImageFromURL(providedURL);
+                } catch(e) {
+                    console.error(e);
+                    await loadImageFromURL('fish.png');
+                }
+            } else {
+                await loadImageFromURL('fish.png');
+            }
+        }
+
+        async function loadSoundFromURL(url) {
+            const response = await fetch(url);
+            soundArrayBuffer = await response.arrayBuffer();
+        }
+
+        (async () => {
+            await Promise.all([
+                loadImage(),
+                loadSoundFromURL('horn.mp3')
+            ]);
+
+            resizeCanvas();
+            render();
+        })();
+
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('keydown', onInteract);
+        window.addEventListener('click', onInteract);
+    </script>
+</body>
+</html>
