@@ -45,7 +45,7 @@
             if(audioContext === null) {
                 audioContext = new AudioContext();
                 gainNode = audioContext.createGain();
-                gainNode.gain.value = 0.1;
+                gainNode.gain.value = 0.5;
                 gainNode.connect(audioContext.destination);
             }
             if(audioBuffer === null) {
